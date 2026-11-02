@@ -80,6 +80,22 @@ So what:
 
 ## Useful `kubectl` Concepts
 
+```text
+kubectl <verb> <kind> <name> -n <namespace> [flags]
+```
+
+| verb | what it does |
+| ---- | ------------ |
+| `get` | list objects |
+| `describe` | details + Events (Kubernetes' view) |
+| `logs` | the app's stdout (the app's view) |
+| `create` / `apply` | make objects (`create` = imperative, `apply` = from yaml) |
+| `delete` | remove objects |
+| `expose` | create a Service in front of a Deployment ("expose" = make it reachable) |
+| `run` | start a single bare Pod |
+
+Don't memorize flags — `kubectl <verb> --help`, `kubectl explain <kind>.spec`.
+
 ```bash
 kubectl get jobs       # Controller/workload state
 kubectl get pods       # Execution state
@@ -269,6 +285,8 @@ Observed: `Running → Completed → restarted → Running → Completed → Cra
 
 The process exits successfully, but the Deployment expects a continuously running replica.
 
+Observed (k1-demo): delete one Pod of a `replicas: 3` Deployment → a Pod with a **new** name appears (AGE 0s); `kubectl delete` waits until the old Pod is gone, so `Terminating` may not show.
+
 ---
 
 ## Job vs Deployment
@@ -313,6 +331,26 @@ Inference Pods are disposable: their IPs change after a restart or rollout. A **
 client Pod → http://inference-service:80 → Service (stable ClusterIP)
     → EndpointSlice (current Ready Pod IPs) → inference Pod A / B
 ```
+
+### Label vs selector
+
+*How does a Service know which Pods to send to?* By label, not by name.
+
+```text
+Deployment template  → stamps label app=web on every Pod it creates (new Pods too)
+Pod name             → web-5d6b5c7df9-59fdh  (changes when replaced)
+Pod label            → app=web               (same on every replica)
+Service selector     → app=web  → "send to Pods wearing this label"
+```
+
+```bash
+kubectl get pods -n k1-demo --show-labels
+kubectl describe svc web -n k1-demo     # Selector, ClusterIP, Endpoints = current Pod IPs
+```
+
+So what:
+- A replaced Pod gets a new name and IP but the same label → the Service picks it up automatically.
+- ClusterIP is reachable only inside the cluster; clients use the Service NAME (cluster DNS).
 
 <details>
 <summary>Hands-on: create, test, and debug Service discovery</summary>
