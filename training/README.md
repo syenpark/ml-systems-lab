@@ -50,6 +50,14 @@ gradient= the "which way to nudge", computed by backward
 optimizer= the only thing that actually moves the weights
 ```
 
+```text
+autograd  → COMPUTES gradients inside backward()  (always — even on 1 GPU; += into .grad)
+DDP       → a wrapper that hooks into autograd → AVERAGES grads across ranks (only when distributed)
+optimizer → only UPDATES weights from .grad in step()  (never computes gradients)
+```
+
+autograd is PyTorch's built-in engine; DDP rides on it via hooks (see next section).
+
 - the optimizer never sees loss or forward — it consumes `.grad` and updates
   weights. That's why all DDP needs to average is the gradients.
 - `zero_grad` matters: `.grad` accumulates across steps, so skipping it adds
@@ -237,6 +245,9 @@ submission, not completion     one arrives                  (see Straggler Lab)
 "set_epoch always reshuffles"      → only with shuffle=True: new seed per epoch, same order otherwise
 "total time / samples = training speed" → only if sum(steps) ≈ total; here ~90% was worker restarts
 "Dataset → DataLoader (Dataset runs first)" → build order only; at run time the DataLoader calls dataset[i]
+"persistent_workers=True restarts workers" → True = workers persist; False (default) restarts them every epoch
+"the optimizer computes gradients"         → autograd computes them in backward(); the optimizer only updates weights
+"autograd is part of DDP"                  → autograd always runs; DDP only hooks into it to average grads
 ```
 
 ## Part 2 — Why Training Is Slow
@@ -264,7 +275,16 @@ epoch 0 [warmup | steady steps...] → kill workers + spawn new → epoch 1 [...
 ```
 
 - Check `sum(step times) ≈ total` before trusting a throughput number.
-- Fix: `persistent_workers=True`, or time only steady steps (skip warmup + epoch boundaries).
+
+```text
+persistent_workers=True   → workers PERSIST across epochs → no restart cost   (faster)
+persistent_workers=False  → (default) kill + respawn workers every epoch      (the slow run above)
+```
+
+- Use True when the Dataset is the same every epoch (the usual case).
+- Keep False when the Dataset object changes between epochs (curriculum, hard-example
+  mining, new data each epoch) — persistent workers keep their OLD copy of the Dataset.
+- Or time only steady steps (skip warmup + epoch boundaries).
 
 ### CPU Contention Lab
 
