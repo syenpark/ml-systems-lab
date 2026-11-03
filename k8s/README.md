@@ -352,6 +352,34 @@ So what:
 - A replaced Pod gets a new name and IP but the same label → the Service picks it up automatically.
 - ClusterIP is reachable only inside the cluster; clients use the Service NAME (cluster DNS).
 
+### Client vs server (and where ClusterIP reaches)
+
+*Who is the client here, and who is the server?*
+client = whoever SENDS the request; server = whoever ANSWERS it.
+Inference Pods are servers (backends), not clients.
+
+```text
+┌──────────────────────── cluster ─────────────────────────┐
+│                                                          │
+│  client Pod                Service (ClusterIP)           │
+│  (busybox tmp /     ──▶   "web" 10.96.x.x       ──┬──▶  Pod A  (server)
+│   trading app)            stable name + IP        ├──▶  Pod B  (server)
+│                           selector: app=web       └──▶  Pod C  (server)
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+        ✗ outside the cluster (laptop, external user) cannot reach a ClusterIP
+          → needs NodePort / LoadBalancer / Ingress (later)
+```
+
+```bash
+kubectl run tmp --rm -it --restart=Never --image=busybox -n k1-demo -- wget -qO- http://web
+#  tmp = client (inside the cluster) · web = Service · nginx Pods = servers
+```
+
+So what:
+- A ClusterIP Service is reachable only from inside the cluster, so its clients must be Pods in the same cluster.
+- Clients use the Service NAME; they never need to know which server Pod answers.
+
 <details>
 <summary>Hands-on: create, test, and debug Service discovery</summary>
 
