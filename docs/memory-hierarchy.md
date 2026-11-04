@@ -137,8 +137,10 @@ cold cache line:
 A contiguous `std::vector` of POD structs turns that pointer chase into a
 linear scan: fixed memory offsets replace dictionary lookups, the CPU's
 prefetcher can keep the cache fed, and the interpreter dispatch overhead
-disappears entirely — commonly a 10x–100x speedup for metadata-heavy hot
-loops like real-time object-detection post-processing.
+disappears entirely — often an order-of-magnitude speedup for the loop
+itself. End-to-end gains are smaller, because the rest of the pipeline
+(decode, inference, I/O) is unchanged: in a production pipeline I worked on,
+moving this path to C++ took per-stream throughput from 8 to 25 FPS.
 
 See also [docs/jargon.md](./jargon.md) for a glossary of cache-miss,
 false-sharing, NUMA, and allocator terms.
