@@ -8,8 +8,6 @@ Modern ML systems are increasingly limited not only by model inference, but also
 
 From C++ memory management and lock-free queues, to DDP process groups and pod scheduling, this repo builds components explicitly from the ground up. The goal is not to hide complexity behind frameworks, but to build intuition about what happens underneath them.
 
-*Note: the repository retains its original name, `cpp_refresh`, but the content scope is much broader.*
-
 ## Contents
 
 - [Repository Layout](#repository-layout)
