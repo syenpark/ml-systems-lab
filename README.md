@@ -1,6 +1,6 @@
 # A Systems-Oriented Engineer's Lab: C++, Python/PyTorch, Kubernetes
 
-[![C++ Pre-commit Checks](https://github.com/syenpark/cpp_refresh/actions/workflows/cpp-precommit.yml/badge.svg)](https://github.com/syenpark/cpp_refresh/actions/workflows/cpp-precommit.yml)
+[![C++ Pre-commit Checks](https://github.com/syenpark/ml-systems-lab/actions/workflows/cpp-precommit.yml/badge.svg)](https://github.com/syenpark/ml-systems-lab/actions/workflows/cpp-precommit.yml)
 
 A hands-on lab across the layers of modern ML infrastructure — low-latency **C++** kernels, **Python/PyTorch** distributed training, and **Kubernetes** orchestration.
 
