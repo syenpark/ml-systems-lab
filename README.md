@@ -2,7 +2,7 @@
 
 [![C++ Pre-commit Checks](https://github.com/syenpark/ml-systems-lab/actions/workflows/cpp-precommit.yml/badge.svg)](https://github.com/syenpark/ml-systems-lab/actions/workflows/cpp-precommit.yml)
 
-A hands-on lab across the layers of modern ML infrastructure — low-latency **C++** kernels, **Python/PyTorch** distributed training, and **Kubernetes** orchestration.
+A hands-on lab across the layers of modern ML infrastructure — real-time **C++** kernels, **Python/PyTorch** distributed training, and **Kubernetes** orchestration.
 
 Modern ML systems are increasingly limited not only by model inference, but also by everything around the model: data movement, serialization, memory behavior, CPU efficiency, process communication, resource utilization.
 
@@ -12,7 +12,7 @@ From C++ memory management and lock-free queues, to DDP process groups and pod s
 
 - [Repository Layout](#repository-layout)
 - [Setup](#setup)
-- [Practical Application: Video Analytics](#practical-application-video-analytics)
+- [Practical Application: Real-time Event Processing](#practical-application-real-time-event-processing)
 - [Learning Notes](#learning-notes)
 
 ## Repository Layout
@@ -59,14 +59,14 @@ kubectl cluster-info --context kind-mle-lab
 
 See the [Kubernetes Lab](./k8s/README.md) for the actual exercises.
 
-## Practical Application: Video Analytics
+## Practical Application: Real-time Event Processing
 
 As model inference gets faster, the bottleneck shifts to everything around
 it — data flow and real-time decision-making in the post-processing layer.
 This repo pairs PyTorch distributed training (see the
 [Training Lab](./training/README.md)) with a C++ rewrite of that
 post-processing hot path, since Python's per-object pointer-chasing and
-dictionary lookups dominate cost at high frame rates. The concrete
+dictionary lookups dominate cost at high event rates. The concrete
 before/after — why a contiguous C++ buffer beats scattered Python
 objects — is worked through in
 [docs/memory-hierarchy.md](./docs/memory-hierarchy.md#case-study-pointer-chasing-breaks-cache-locality-python-vs-c).

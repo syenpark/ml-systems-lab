@@ -139,8 +139,7 @@ linear scan: fixed memory offsets replace dictionary lookups, the CPU's
 prefetcher can keep the cache fed, and the interpreter dispatch overhead
 disappears entirely — often an order-of-magnitude speedup for the loop
 itself. End-to-end gains are smaller, because the rest of the pipeline
-(decode, inference, I/O) is unchanged: in a production pipeline I worked on,
-moving this path to C++ took per-stream throughput from 8 to 25 FPS.
+(decode, inference, I/O) is unchanged.
 
 See also [docs/jargon.md](./jargon.md) for a glossary of cache-miss,
 false-sharing, NUMA, and allocator terms.

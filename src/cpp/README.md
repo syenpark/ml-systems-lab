@@ -1,7 +1,7 @@
 # C++ Lab
 
 Progressive C++ ownership/concurrency topics (`day01` → `week04`/`lab`), plus
-a small low-latency analytics bootstrap project.
+a small real-time analytics bootstrap project.
 
 ## Topics
 
@@ -106,7 +106,7 @@ s.pop();           // ...then remove: pop() returns void
 
 ## Analytics Bootstrap
 
-A C++ bootstrap for a low-latency analytics container: build system, config
+A C++ bootstrap for a real-time analytics container: build system, config
 loading, and process-level I/O (ZeroMQ) wired up before any analytics hot
 path is added.
 
@@ -145,7 +145,7 @@ git submodule update --init --recursive
 [stream]
 fps = 0
 source_id = 0
-uri = "rtsp://camera/stream"
+uri = "tcp://source:5555"
 fps_check_interval_sec = 10
 max_sources = 1
 max_detections = 300

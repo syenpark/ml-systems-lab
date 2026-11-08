@@ -363,7 +363,7 @@ Inference Pods are servers (backends), not clients.
 │                                                          │
 │  client Pod                Service (ClusterIP)           │
 │  (busybox tmp /     ──▶   "web" 10.96.x.x       ──┬──▶  Pod A  (server)
-│   trading app)            stable name + IP        ├──▶  Pod B  (server)
+│   another app)            stable name + IP        ├──▶  Pod B  (server)
 │                           selector: app=web       └──▶  Pod C  (server)
 │                                                          │
 └──────────────────────────────────────────────────────────┘

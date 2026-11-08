@@ -5,13 +5,13 @@ the cache/RAM diagrams these terms refer to.
 
 - `Hot path` / `Hot loop`
 
-    The code that runs constantly, for every event — e.g. receiving object
-    detection metadata in real time at 25 FPS.
+    The code that runs constantly, for every event — e.g. processing every
+    incoming event in real time.
 
     ```cpp
     read_inference_metadata(msg) {
         update_objects_info(msg);
-        send_results_to_kafka();
+        publish_results();
     }
     ```
 

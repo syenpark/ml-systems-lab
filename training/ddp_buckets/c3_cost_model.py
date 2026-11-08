@@ -1,7 +1,7 @@
 """Concept 3 + 4: back-of-envelope numbers for DDP scaling and FSDP memory. Pure Python.
 
 Run:  python c3_cost_model.py
-Edit the numbers at the bottom and re-run; this is the calculator to use in interviews.
+Edit the numbers at the bottom and re-run; this is a calculator for quick back-of-envelope estimates.
 """
 
 from __future__ import annotations
