@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: k1-demo-quota
+  namespace: k1-demo
+spec:
+  hard:
+    requests.cpu: "1"

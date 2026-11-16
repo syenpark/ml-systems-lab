@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: k1-demo
+spec:
+  limits:
+  - type: Container
+    defaultRequest: {cpu: 100m, memory: 64Mi}   # filled into empty requests
+    default: {cpu: 200m, memory: 128Mi}         # filled into empty limits
+    # max: {cpu: 500m, memory: 256Mi}           # optional: reject containers above this

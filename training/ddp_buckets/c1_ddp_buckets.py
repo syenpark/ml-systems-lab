@@ -46,6 +46,7 @@ def _run_training_steps(ddp, opt, grad_accum, no_sync, events, t0):  # noqa: PLR
             with ctx:
                 x = torch.randn(64, 1024)
                 loss = ddp(x).pow(2).mean()
+                loss = loss / grad_accum  # grads add up over micro-steps → average
                 b0 = time.perf_counter() - t0[0]
                 loss.backward()  # hooks fire INSIDE this call
                 bwd_spans.append((b0, time.perf_counter() - t0[0]))

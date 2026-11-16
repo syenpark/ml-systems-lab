@@ -18,6 +18,8 @@ The labs follow one question from the view of a shared ML cluster: *why does (or
 - [CrashLoopBackOff](#crashloopbackoff)
 - [Resource requests](#resource-requests)
 - [Admission Failure vs Scheduling Failure](#admission-failure-vs-scheduling-failure)
+- [LimitRange: default requests/limits (K4 part 1)](#limitrange-default-requestslimits-k4-part-1)
+- [Who reads which field (kubectl apply → traffic)](#who-reads-which-field-kubectl-apply--traffic)
 
 ## Start the Cluster
 
@@ -117,19 +119,21 @@ while (true) {
 ```
 
 ```text
-Deployment ──owns──> Pods   keep N running forever  (servers, e.g. inference)
-Job        ──owns──> Pod    run until success, stop (e.g. a training run)
-bare Pod   (no owner)       deleted = gone          (see Pod & Namespace)
+Deployment ──owns──> ReplicaSet ──owns──> Pods   keep N running forever  (servers, e.g. inference)
+Job        ──owns──> Pod                         run until success, stop (e.g. a training run)
+bare Pod   (no owner)                            deleted = gone          (see Pod & Namespace)
 ```
 
-So what: delete 1 Pod of a `replicas: 3` Deployment → the controller sees 2 < 3 and creates a **new** Pod (new name). The deleted one is not revived. Restart behavior: see [Job vs Deployment](#job-vs-deployment).
+So what:
+- Delete 1 Pod of a `replicas: 3` Deployment → the **ReplicaSet** controller sees 2 < 3 and creates a **new** Pod (new name). The deleted one is not revived. The Deployment only manages ReplicaSets (rollouts). Restart behavior: see [Job vs Deployment](#job-vs-deployment).
+- Node lost → no instant replacement: its Pods are replaced only after they are evicted (~5 min by default).
 
 ### Resource relationships: everything centers on the Pod
 
 | Kind | What it is | Relationship to Pod | Analogy |
 | ---- | ---------- | ------------------- | ------- |
 | **Pod** | The actual unit of execution | This is the real workload: a Pod runs the process/container | One employee doing the actual work |
-| **Deployment** | A controller that creates and manages Pods | Creates and maintains Pods according to the desired replica count | HR/recruiting manager that hires and supervises employees |
+| **Deployment** | A controller that manages ReplicaSets (rollouts) | Its ReplicaSet creates and maintains Pods according to the desired replica count | HR/recruiting manager that hires and supervises employees |
 | **Job** | A workload controller for finite tasks | Creates Pods to run a batch job until completion | Project manager assigning a one-time task |
 | **Namespace** | A logical boundary/folder for objects | Every Pod must live inside a Namespace | A C++ namespace: a name scope, not a place |
 | **ResourceQuota** | Namespace-level total budget | Limits the combined resource requests of all Pods in the Namespace | A department's office budget cap |
@@ -402,7 +406,7 @@ kubectl run client --image=busybox:1.36 --restart=Never --command -- sleep 3600
 kubectl exec client -- nslookup inference-service    # resolves to the Service's ClusterIP, not a Pod IP
 kubectl exec client -- wget -qO- http://inference-service
 
-kubectl delete pod <inference-pod>                   # Deployment replaces it, likely with a new IP
+kubectl delete pod <inference-pod>                   # its ReplicaSet replaces it, likely with a new IP
 kubectl get endpointslice -l kubernetes.io/service-name=inference-service
 kubectl exec client -- wget -qO- http://inference-service   # unchanged — client never saw the IP change
 ```
@@ -576,3 +580,86 @@ kubelet starts the container → Running
 The two are independent: a team can have quota left while every node is full (Pending), or an empty cluster can still reject a team that spent its budget (Forbidden). When a Job/Deployment creates the Pod, note that a quota rejection lands on the **controller** (`FailedCreate`), not on a Pod — there is no Pod to `describe`.
 
 For an ML platform, this is how GPU budgets per research team are enforced — e.g. `requests.nvidia.com/gpu: "8"` in a team's ResourceQuota caps that team at 8 GPUs regardless of how many are free in the cluster.
+
+---
+
+## LimitRange: default requests/limits (K4 part 1)
+
+*Why is a Pod without resources rejected in a namespace with a ResourceQuota, and how does LimitRange fix it?*
+
+```bash
+# from k8s/ — namespace k1-demo, quota hard requests.cpu: "1"
+kubectl apply -f k4-limitrange/quota.yaml
+kubectl -n k1-demo run nolimit --image=nginx
+# → Error from server (Forbidden)   (quota can't count a Pod with no requests)
+
+kubectl apply -f k4-limitrange/limitrange.yaml   # defaultRequest 100m/64Mi, default 200m/128Mi
+kubectl -n k1-demo run nolimit --image=nginx
+kubectl -n k1-demo get pod nolimit -o jsonpath='{.spec.containers[0].resources}'
+# → {"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"100m","memory":"64Mi"}}
+```
+
+[k4-limitrange/limitrange.yaml](./k4-limitrange/limitrange.yaml):
+
+```yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: k1-demo
+spec:
+  limits:
+  - type: Container
+    defaultRequest: {cpu: 100m, memory: 64Mi}   # filled into empty requests
+    default: {cpu: 200m, memory: 128Mi}         # filled into empty limits
+    # max: {cpu: 500m, memory: 256Mi}           # optional: reject containers above this
+```
+
+What you see: the same `kubectl run` goes from Forbidden to created, and the Pod spec now carries requests/limits I never wrote — the API server filled them in.
+
+```text
+Pod (no resources) → API server
+   ① LimitRange    : fill empty requests/limits (+ min/max check)   ← mutating, first
+   ② ResourceQuota : sum of requests in namespace ≤ hard ?          ← validating, then
+   → over: Forbidden (Pod never created) · ok: stored → scheduler
+```
+
+Worked example — quota 1 CPU, 0.7 already requested, 4 Pods with no requests:
+
+```text
+LimitRange fills 100m each →  0.8 ✓   0.9 ✓   1.0 ✓   1.1 ✗ (Forbidden: exceeded quota)
+→ 3 created
+```
+
+| Object | Scope | What it does |
+|---|---|---|
+| ResourceQuota | whole namespace | caps the SUM (e.g. requests.cpu) |
+| LimitRange | each container | fills defaults, enforces min/max |
+| requests / limits | in the Pod spec | the Pod's own declaration |
+
+| | requests | limits |
+|---|---|---|
+| read by | scheduler (allocatable − already requested) and quota | kernel cgroups at runtime |
+| if exceeded | Pending (scheduler) / Forbidden (quota) | CPU: throttled · memory: OOMKilled |
+
+So what:
+- LimitRange removes the "no requests" rejection, but not the "over the total" rejection.
+
+---
+
+## Who reads which field (kubectl apply → traffic)
+
+*After `kubectl apply`, which component reads which part of the YAML — and where does each failure show up?*
+
+| Step | Who | Reads | If it fails |
+|---|---|---|---|
+| 1 | API server | apiVersion, kind, metadata, schema | kubectl error, nothing created |
+| 2 | Deployment controller | replicas, selector, template, strategy | rollout stuck (`kubectl rollout status`) |
+| 3 | ReplicaSet controller | replicas vs Pods matching selector; template | `FailedCreate` event on the ReplicaSet |
+| 4 | API server: LimitRange | defaultRequest / default / max ↔ container resources | Forbidden if above max |
+| 5 | API server: ResourceQuota | hard (e.g. requests.cpu) ↔ namespace sum | Forbidden; shows as `FailedCreate` on the ReplicaSet |
+| 6 | scheduler | requests, priorityClassName, nodeSelector/affinity/taints ↔ node allocatable − requested | Pending, `FailedScheduling`; may preempt lower priority |
+| 7 | kubelet | image, limits, livenessProbe, restartPolicy | ImagePullBackOff, CrashLoopBackOff, OOMKilled, CPU throttling |
+| 8 | Endpoints controller + kube-proxy | Service selector ↔ Pod labels (ready only), ports | no endpoints → requests fail |
+
+A deleted Pod is replaced by the ReplicaSet controller (new name); a crashed container is restarted by the kubelet (same name, RESTARTS +1).

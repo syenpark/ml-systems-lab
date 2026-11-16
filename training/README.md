@@ -147,6 +147,7 @@ e.g. 2000 samples, 4 ranks, batch_size=32
 with sampler:    2000 / 4 = 500 per rank → ceil(500/32) = 16 steps per rank per epoch
 without sampler: each rank sees all 2000 → ceil(2000/32) = 63 steps (4× the work, same model)
 global batch = 32 × 4 = 128 samples per optimizer.step()
+len % world_size ≠ 0 → the sampler pads by repeating a few indices (unless drop_last=True)
 ```
 
 ### Without vs With DistributedSampler
@@ -174,17 +175,19 @@ uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
 ```
 
 ```text
-no sampler → every rank gets identical batches (same order: shuffle=False) → identical gradients
+no sampler + shuffle=False → every rank gets identical batches → identical gradients
 → average of identical gradients = the same gradient
 → same model as 1 rank, no speedup; no error is raised
+(in any case, with or without shuffle, every rank processes the whole dataset)
 ```
 
 ```text
 x[:3] converges to ≈1.2587 for almost every index (sin+cos iteration) —
 look at indices/total_samples above to tell ranks apart, not x.
 
-sampler.set_epoch(epoch) runs either way, but only reshuffles when
-shuffle=True — here shuffle=False, so it has no visible effect.
+sampler.set_epoch(epoch) only stores the epoch; the shuffle (seed + epoch)
+happens when the loader starts iterating, and only with shuffle=True —
+here shuffle=False, so it has no visible effect.
 ```
 
 ### One Training Iteration: CPU → GPU → DDP
@@ -240,10 +243,10 @@ submission, not completion     one arrives                  (see Straggler Lab)
 "torchrun splits the data"         → torchrun launches + sets RANK/WORLD_SIZE/MASTER_ADDR/PORT; the sampler splits
 "no sampler → error / wrong model" → no error; same model as 1 rank, just no speedup
 "barrier = all-reduce"             → barrier only waits; all-reduce waits AND combines
-"zero_grad resets to the averaged grad" → backward ADDS (+=) into .grad; zero_grad clears it each step
+"zero_grad resets to the averaged grad" → backward ADDS (+=) into .grad; zero_grad clears it each step (2.x: .grad = None, not 0)
 "workers = ranks"                  → workers are helper processes INSIDE one rank
-"set_epoch always reshuffles"      → only with shuffle=True: new seed per epoch, same order otherwise
-"total time / samples = training speed" → only if sum(steps) ≈ total; here ~90% was worker restarts
+"set_epoch always reshuffles"      → it only stores the epoch; the loader's next iteration shuffles (seed + epoch), and only with shuffle=True
+"total time / samples = training speed" → only if sum(steps) ≈ total; here ~95% was worker start/restart/shutdown
 "Dataset → DataLoader (Dataset runs first)" → build order only; at run time the DataLoader calls dataset[i]
 "persistent_workers=True restarts workers" → True = workers persist; False (default) restarts them every epoch
 "the optimizer computes gradients"         → autograd computes them in backward(); the optimizer only updates weights
@@ -265,7 +268,8 @@ uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
 step 0              ≈ 1000× the median step   (worker start = warmup)
 slowest step        = first step of epoch 1   (workers shut down + restart)
 sum(step times)     ≈ ½ of elapsed            (rest = final worker shutdown)
-overall             ≈ 90% worker start/stop, real steps ≈ 5%
+epoch-1 restart     ≈ ½ of elapsed on its own
+overall             ≈ 95% worker start/restart/shutdown, real steps ≈ 5%
                     → reported throughput ≈ 20× too low
 ```
 
@@ -277,7 +281,8 @@ epoch 0 [warmup | steady steps...] → kill workers + spawn new → epoch 1 [...
 - Check `sum(step times) ≈ total` before trusting a throughput number.
 
 ```text
-persistent_workers=True   → workers PERSIST across epochs → no restart cost   (faster)
+persistent_workers=True   → workers PERSIST across epochs → no epoch-boundary restart
+                            → ≈ halves the run above (first start + final shutdown remain)
 persistent_workers=False  → (default) kill + respawn workers every epoch      (the slow run above)
 ```
 

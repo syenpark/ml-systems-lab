@@ -556,7 +556,7 @@ I/O suspected
 Network suspected
       ss -tuna          → inspect socket states
       sar -n DEV 1      → inspect interface traffic and utilisation
-      sar -n TCP 1      → inspect TCP-level errors and retransmissions
+      sar -n ETCP 1     → inspect TCP-level errors and retransmissions
 ```
 
 The signals are clues, not proof: confirm the suspected bottleneck with the
