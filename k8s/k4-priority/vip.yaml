@@ -1,0 +1,13 @@
+# Requests more CPU than is left after 2 × filler → needs preemption.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vip
+  namespace: k4-prio
+spec:
+  priorityClassName: high
+  containers:
+  - name: pause
+    image: registry.k8s.io/pause:3.9
+    resources:
+      requests: {cpu: 1500m}

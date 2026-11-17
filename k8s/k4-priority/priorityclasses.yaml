@@ -1,0 +1,14 @@
+# Cluster-scoped: no namespace. Deleting k4-prio does NOT remove these.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: low
+value: 100
+description: "Low priority: may be preempted by higher-priority Pods."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high
+value: 1000
+description: "High priority: may preempt lower-priority Pods."

@@ -19,6 +19,7 @@ The labs follow one question from the view of a shared ML cluster: *why does (or
 - [Resource requests](#resource-requests)
 - [Admission Failure vs Scheduling Failure](#admission-failure-vs-scheduling-failure)
 - [LimitRange: default requests/limits (K4 part 1)](#limitrange-default-requestslimits-k4-part-1)
+- [PriorityClass and preemption (K4 part 2)](#priorityclass-and-preemption-k4-part-2)
 - [Who reads which field (kubectl apply → traffic)](#who-reads-which-field-kubectl-apply--traffic)
 
 ## Start the Cluster
@@ -644,6 +645,65 @@ LimitRange fills 100m each →  0.8 ✓   0.9 ✓   1.0 ✓   1.1 ✗ (Forbidden
 
 So what:
 - LimitRange removes the "no requests" rejection, but not the "over the total" rejection.
+
+---
+
+## PriorityClass and preemption (K4 part 2)
+
+*When the node is full, can a more important Pod still run — and what can priority NOT do?*
+
+```bash
+cd k8s/k4-priority
+./run.sh         # step 0: free CPU · step 1: 2 low fillers · step 2: high vip
+./run.sh clean   # deletes the namespace AND the cluster-scoped PriorityClasses
+```
+
+[k4-priority/](./k4-priority/): PriorityClasses `low` (100) and `high` (1000); Deployment `filler` (2 × `low`, sized to ~90% of free node CPU); Pod `vip` (`high`, asks for more than is left).
+
+What you see: vip runs, one filler is evicted, and its replacement (a new name) stays Pending.
+
+```text
+before vip:  filler-a  Running · filler-b  Running
+after vip:   vip       Running
+             filler-b  Running
+             filler-c  Pending   ← NEW name: the ReplicaSet controller replaced the evicted filler-a
+```
+
+```text
+vip (priority 1000) Pending ── scheduler: no node has room
+   → would evicting lower-priority Pods make room on a node?  yes
+   → evict filler-a (priority 100) → place vip
+filler-a gone → ReplicaSet controller: replicas 2 vs actual 1 → creates filler-c
+filler-c (priority 100) → scheduler: no room, and it can't evict vip (higher) → Pending
+```
+
+| Who | Reads | Result |
+|---|---|---|
+| API server (admission) | priorityClassName → PriorityClass value | Pod gets a priority number |
+| scheduler | requests vs node room, priority | higher priority goes first; may preempt LOWER-priority Pods |
+| ReplicaSet controller | replicas vs actual Pods | creates the replacement Pod (new name) |
+
+Order of checks for each Pod (first → last):
+
+```text
+0 ReplicaSet ctrl sends create
+1 auth + schema
+2 LimitRange      (fill)
+3 PriorityClass   (name → number)
+4 ResourceQuota   (sum ≤ hard, else Forbidden)
+5 stored in etcd, Pending (no node)
+6 scheduler       (requests, priority, preemption; else Pending)
+7 kubelet         (image, limits, probes)
+8 endpoints + kube-proxy
+```
+
+Precision checks (things I got wrong at first):
+- The SCHEDULER doesn't create Pods; the ReplicaSet controller does. The scheduler only picks a node.
+- Priority can't get past ResourceQuota. ResourceQuota is checked earlier, by the API server, so an over-quota Pod is Forbidden and never reaches the scheduler. Preemption frees NODE room, not quota.
+- Equal priority → no preemption (the new Pod just stays Pending).
+
+So what:
+- PriorityClass decides who gets node room first and who can be evicted. It does nothing at admission, so ResourceQuota still applies to every Pod.
 
 ---
 
