@@ -19,6 +19,7 @@ training/
 ├── gpu_inference_timing.py            naive vs synchronized GPU timing (MPS)
 ├── gpu_inference_profiling.py         torch.profiler / MPS trace (CUDA or MPS)
 ├── ddp_buckets/                       bucket / ring-allreduce / FSDP micro-examples
+├── ddp_checkpoint/                    crash mid-run → resume → same weights
 └── Containerfile                      image used by the torchrun examples above
 ```
 
@@ -392,6 +393,45 @@ DataLoader → prefetch queue → next(loader) → CPU batch → .to(device) →
 </details>
 
 [Colab TensorBoard GPU profiling example](https://colab.research.google.com/drive/1zIQs4xS_cmJJhHvyKpmmPW6xXtTXgH5Y#scrollTo=iCT4ynRMDmuF)
+
+## Part 4 — Checkpoint and Resume
+
+*Crash mid-run, then resume: same final weights as an uninterrupted run, or not?*
+
+```bash
+# 1) reference, no crash
+uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+  -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --fresh
+# 2) all ranks die mid-epoch 2
+uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+  -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --fresh --crash-at-epoch 2
+# 3) resume → FINAL checksum == run 1
+uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+  -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --resume
+# 4) redo 2), then resume with weights only → different checksum
+uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+  -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --resume --no-opt-state
+```
+
+What you see: run 3 prints `loaded epoch 1 → starting at epoch 2`, then the
+same per-epoch checksums as run 1 — bit-identical. Run 4 (weights restored,
+momentum not) diverges from epoch 2 on.
+
+```text
+epoch 0 ─save─ epoch 1 ─save─ epoch 2 ──✗ crash (half of epoch 2 lost)
+                        │
+               resume ──┘ load {model, optimizer, epoch, rng}
+                          start_epoch = 1 + 1 → set_epoch(2) → same shuffle
+
+save:  rank 0 only (weights identical on all ranks) → write .tmp → os.replace (atomic)
+       barrier → nobody starts the next epoch before the file exists
+load:  every rank reads the same file, into ddp.module (the inner model)
+```
+
+- Checkpoint = weights **+ optimizer state + epoch + RNG**. Weights alone resume
+  a *different* run (momentum restarts at 0); no error, just different results.
+- Resume granularity = the save interval: everything since the last save is
+  redone, so save often enough that a crash is cheap.
 
 ## Appendix
 
