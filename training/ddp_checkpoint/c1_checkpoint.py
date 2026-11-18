@@ -1,11 +1,14 @@
 """DDP checkpoint / resume: crash mid-run, resume, and get the same weights.
 
     # 1) uninterrupted run (reference)
-    torchrun --nproc_per_node=2 --master_addr=127.0.0.1 --master_port=29500 c1_checkpoint.py --epochs 4 --ckpt /tmp/ckpt.pt --fresh
+    uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+      -m training.ddp_checkpoint.c1_checkpoint --epochs 4 --ckpt /tmp/ckpt.pt --fresh
     # 2) same run, but every rank "dies" in the middle of epoch 2
-    torchrun --nproc_per_node=2 --master_addr=127.0.0.1 --master_port=29500 c1_checkpoint.py --epochs 4 --ckpt /tmp/ckpt.pt --fresh --crash-at-epoch 2
+    uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+      -m training.ddp_checkpoint.c1_checkpoint --epochs 4 --ckpt /tmp/ckpt.pt --fresh --crash-at-epoch 2
     # 3) resume from the last checkpoint
-    torchrun --nproc_per_node=2 --master_addr=127.0.0.1 --master_port=29500 c1_checkpoint.py --epochs 4 --ckpt /tmp/ckpt.pt --resume
+    uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
+      -m training.ddp_checkpoint.c1_checkpoint --epochs 4 --ckpt /tmp/ckpt.pt --resume
     # (optional) crash again with 2), then resume WITHOUT the optimizer state → different final weights
     ... --resume --no-opt-state
 """
