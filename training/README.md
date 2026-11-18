@@ -451,3 +451,9 @@ Environment
 | 3 | c3_cost_model.py | `uv run python -m training.ddp_buckets.c3_cost_model` | when comm stops hiding behind backward; FSDP memory |
 | 4 | c4_fsdp_by_hand.py | `uv run torchrun --nproc-per-node=4 --master_addr=127.0.0.1 --master_port=29500 -m training.ddp_buckets.c4_fsdp_by_hand` | sharded weights give the same answer as DDP with 1/N memory |
 | 5 | c5_hang_demo.py | `uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 -m training.ddp_buckets.c5_hang_demo --mode skip` | a skipped collective = hang -> timeout error |
+
+[./ddp_checkpoint](./ddp_checkpoint/) for checkpoint / resume (Part 4):
+
+| # | File | Run | What to look at |
+| --- | ------ | ----- | ----------------- |
+| 1 | c1_checkpoint.py | `uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --fresh [--crash-at-epoch 2]`, then `--resume [--no-opt-state]` | resumed FINAL checksum == uninterrupted run; without optimizer state it differs |
