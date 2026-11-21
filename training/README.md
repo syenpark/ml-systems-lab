@@ -394,9 +394,12 @@ DataLoader → prefetch queue → next(loader) → CPU batch → .to(device) →
 
 [Colab TensorBoard GPU profiling example](https://colab.research.google.com/drive/1zIQs4xS_cmJJhHvyKpmmPW6xXtTXgH5Y#scrollTo=iCT4ynRMDmuF)
 
-## Part 4 — Checkpoint and Resume
+## Part 4 — Checkpoint and Resume (DDP unit 4)
 
-*Crash mid-run, then resume: same final weights as an uninterrupted run, or not?*
+*If every rank dies mid-epoch, can I resume and end with exactly the same weights?*
+
+Script: [ddp_checkpoint/c1_checkpoint.py](./ddp_checkpoint/c1_checkpoint.py)
+(gloo, 2 ranks, CPU-friendly).
 
 ```bash
 # 1) reference, no crash
@@ -413,9 +416,22 @@ uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 \
   -m training.ddp_checkpoint.c1_checkpoint --ckpt /tmp/ckpt.pt --resume --no-opt-state
 ```
 
-What you see: run 3 prints `loaded epoch 1 → starting at epoch 2`, then the
-same per-epoch checksums as run 1 — bit-identical. Run 4 (weights restored,
-momentum not) diverges from epoch 2 on.
+<details><summary>zsh shortcut (alias, since <code>$R</code> doesn't word-split in zsh)</summary>
+
+```bash
+alias R='uv run torchrun --nproc-per-node=2 --master_addr=127.0.0.1 --master_port=29500 -m training.ddp_checkpoint.c1_checkpoint --epochs 4 --ckpt /tmp/ckpt.pt'
+R --fresh                                                   # reference
+R --fresh --crash-at-epoch 2                                # die mid-epoch 2
+R --resume                                                  # continue
+R --fresh --crash-at-epoch 2 && R --resume --no-opt-state   # weights only
+```
+
+</details>
+
+What you see: run 3 prints `loaded epoch 1`, restarts epoch 2 from its
+beginning, and ends with the same FINAL checksum as run 1 — bit-identical,
+epoch-2 loss included. Run 4 (weights restored, momentum not) ends with a
+different checksum.
 
 ```text
 epoch 0 ─save─ epoch 1 ─save─ epoch 2 ──✗ crash (half of epoch 2 lost)
@@ -425,13 +441,31 @@ epoch 0 ─save─ epoch 1 ─save─ epoch 2 ──✗ crash (half of epoch 2 l
 
 save:  rank 0 only (weights identical on all ranks) → write .tmp → os.replace (atomic)
        barrier → nobody starts the next epoch before the file exists
-load:  every rank reads the same file, into ddp.module (the inner model)
+load:  every rank reads the same file (map_location), into ddp.module (the inner model)
+lost work = everything since the last save
 ```
+
+What the checkpoint holds, and why:
+
+- `ddp.module.state_dict()` — weights. `.module` is the model inside the DDP
+  wrapper, so keys have no `module.` prefix.
+- `optimizer.state_dict()` — momentum / Adam moments; without it the next updates differ.
+- `epoch` — where to continue; `sampler.set_epoch(epoch)` reproduces the same shuffle.
+- RNG state — dropout / augmentation randomness continues the same way.
+
+Save interval trade-off (example: 60-min epochs, 1-min save): save per epoch →
+a crash loses up to 60 min; save every 10 min → lose ≤ 10 min, but 6× more
+time spent saving. Pick the interval from how often failures happen.
 
 - Checkpoint = weights **+ optimizer state + epoch + RNG**. Weights alone resume
   a *different* run (momentum restarts at 0); no error, just different results.
 - Resume granularity = the save interval: everything since the last save is
   redone, so save often enough that a crash is cheap.
+
+Precision checks:
+
+- Run 4's different final weights come from the lost momentum, not randomness.
+- All ranks calling `torch.save` on the same path → racing writers; save on rank 0 only.
 
 ## Appendix
 
